@@ -1,0 +1,1752 @@
+<script>
+  // ----------------------
+  // CashMate Main Script
+  // ----------------------
+
+  // SPA: Page Management
+  function showPage(pageId) {
+    // ซ่อนทุกหน้า
+    document
+      .querySelectorAll(".page")
+      .forEach((page) => page.classList.remove("active"));
+    // แสดงหน้าเป้าหมาย
+    const pageEl = document.getElementById(pageId);
+    if (pageEl) pageEl.classList.add("active");
+
+    switch (pageId) {
+      case "dashboardPage":
+        refreshDashboard();
+        break;
+      case "reportsPage":
+        // ตั้งค่าวันที่เริ่มต้นและโหลดรายงาน
+        setTimeout(() => {
+          setDefaultReportDates();
+          const endDate = moment().utcOffset(7).format("YYYY-MM-DD");
+          const startDate = moment()
+            .utcOffset(7)
+            .subtract(30, "days")
+            .format("YYYY-MM-DD");
+          loadReportWithFilter({
+            date_from: startDate,
+            date_to: endDate,
+          });
+        }, 100);
+        break;
+      default:
+        return;
+    }
+  }
+
+  // ----------------------
+  // Login/Logout
+  // ----------------------
+  document.addEventListener("DOMContentLoaded", function () {
+    // ตรวจสอบ session (mock: ถ้ายังไม่มี user ให้แสดง login)
+    if (!sessionStorage.getItem("user")) {
+      document.getElementById("loginSection").classList.remove("d-none");
+      document.getElementById("mainSection").classList.add("d-none");
+    } else {
+      document.getElementById("loginSection").classList.add("d-none");
+      document.getElementById("mainSection").classList.remove("d-none");
+      refreshDashboard();
+    }
+
+    // Login Form
+    const loginForm = document.getElementById("loginForm");
+    if (loginForm) {
+      loginForm.addEventListener("submit", login);
+    }
+
+    // Toggle password visibility
+    const passwordInput = document.getElementById("password");
+    const togglePasswordBtn = document.getElementById("togglePassword");
+    const togglePasswordIcon = document.getElementById("togglePasswordIcon");
+    if (togglePasswordBtn && passwordInput && togglePasswordIcon) {
+      togglePasswordBtn.addEventListener("click", function () {
+        const isPassword = passwordInput.type === "password";
+        passwordInput.type = isPassword ? "text" : "password";
+        togglePasswordIcon.classList.toggle("bi-eye", !isPassword);
+        togglePasswordIcon.classList.toggle("bi-eye-slash", isPassword);
+      });
+    }
+  });
+
+  function login(event) {
+    event.preventDefault();
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value;
+    if (!username || !password)
+      return showError("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน");
+    showLoading();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        hideLoading();
+
+        if (res.success) {
+          sessionStorage.setItem("user", JSON.stringify(res.user));
+          document.getElementById("userDisplayName").textContent =
+            res.user.name;
+          var userDisplayNameLarge = document.getElementById("userDisplayNameLarge");
+          if (userDisplayNameLarge) userDisplayNameLarge.textContent = res.user.name;
+          document.getElementById("loginSection").classList.add("d-none");
+          document.getElementById("mainSection").classList.remove("d-none");
+          showPage("dashboardPage");
+          setTimeout(() => {
+            refreshDashboard();
+          }, [500]);
+          showSuccess("เข้าสู่ระบบสำเร็จ");
+        } else {
+          showError(res.error || "เข้าสู่ระบบไม่สำเร็จ");
+        }
+      })
+      .withFailureHandler(function () {
+        hideLoading();
+        showError("เกิดข้อผิดพลาดในการเชื่อมต่อ");
+      })
+      .loginUser(username, password);
+  }
+
+  function logout() {
+    sessionStorage.removeItem("user");
+    document.getElementById("mainSection").classList.add("d-none");
+    document.getElementById("loginSection").classList.remove("d-none");
+    showSuccess("ออกจากระบบแล้ว");
+  }
+
+  function confirmLogout() {
+    const modal = new bootstrap.Modal(document.getElementById('modalConfirmLogout'));
+    modal.show();
+    // ป้องกันการซ้อน event
+    const btn = document.getElementById('btnConfirmLogoutOk');
+    btn.onclick = function() {
+      logout();
+    };
+  }
+
+  // ----------------------
+  // Dashboard
+  // ----------------------
+  function refreshDashboard() {
+    showLoading();
+    google.script.run
+      .withSuccessHandler(function (report) {
+        if (report.success && report.data) {
+          document.getElementById("totalIncome").textContent =
+            "" + formatAmount(report.data.total_income) + " ฿";
+          document.getElementById("totalExpense").textContent =
+            "" + formatAmount(report.data.total_expense) + " ฿";
+          document.getElementById("totalCost").textContent =
+            "" + formatAmount(report.data.total_cost) + " ฿";
+          document.getElementById("totalProfit").textContent =
+            "" + formatAmount(report.data.profit) + " ฿";
+
+          // จัดการ profit card และ icon
+          const profitCard = document.getElementById("profitCard");
+          const profitIcon = document.getElementById("profitIcon");
+
+          if (report.data.profit < 0) {
+            // ค่าติดลบ - เพิ่ม class negative และเปลี่ยน icon
+            profitCard.classList.add("negative");
+            profitIcon.className = "bi bi-graph-down";
+          } else {
+            // ค่าบวก - ลบ class negative และใช้ icon ปกติ
+            profitCard.classList.remove("negative");
+            profitIcon.className = "bi bi-graph-up";
+          }
+        }
+      })
+      .generateReport({});
+
+    loadTransactions();
+    loadReport();
+    loadCategories();
+
+    // อัปเดตรายการล่าสุด
+    loadRecentTransactions();
+
+    // อัปเดตสัดส่วนรายการ
+    loadTransactionPieChart();
+
+    // อัปเดตแนวโน้ม 7 วันล่าสุด
+    loadWeeklyTrendChart();
+  }
+
+  // ฟังก์ชันโหลดรายการล่าสุด
+  function loadRecentTransactions() {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        const container = document.getElementById("recentTransactions");
+        if (!container) return;
+
+        if (res.success && res.data && res.data.length) {
+          // แสดงรายการล่าสุด 5 รายการ
+          const recentData = res.data.slice(0, 5);
+          let html = "";
+
+          recentData.forEach((tx) => {
+            const typeClass =
+              tx.type_id === "income"
+                ? "text-success"
+                : tx.type_id === "expense"
+                ? "text-danger"
+                : "text-warning";
+            const typeIcon =
+              tx.type_id === "income"
+                ? "bi-arrow-up-circle"
+                : tx.type_id === "expense"
+                ? "bi-arrow-down-circle"
+                : "bi-cash-stack";
+
+            html += `
+              <div class="recent-transaction-item d-flex justify-content-between align-items-center py-2 border-bottom">
+                <div class="d-flex align-items-center">
+                  <i class="bi ${typeIcon} me-3 ${typeClass}" style="font-size: 1.2rem;"></i>
+                  <div>
+                    <div class="w-bold">${tx.category_name} • ${formatDate(
+              tx.created_at
+            )}</div>
+                    <small class="text-muted">${
+                      tx.description || "ไม่มีคำอธิบาย"
+                    }</small>
+                  </div>
+                </div>
+                <div class="text-end">
+                  <small class="text-muted">${typeLabel(tx.type_id)}</small>
+                  <div class="fw-bold ${typeClass}">${formatAmount(
+              tx.amount
+            )} ฿</div>
+                </div>
+              </div>
+            `;
+          });
+
+          container.innerHTML = html;
+        } else {
+          // แสดงสถานะว่าง
+          container.innerHTML = `
+            <div class="empty-state">
+              <i class="bi bi-inbox"></i>
+              <h5>ยังไม่มีรายการ</h5>
+              <p>เริ่มต้นด้วยการบันทึกรายการแรกของคุณ</p>
+              <button class="btn btn-primary" onclick="showPage('addTransactionPage')">
+                <i class="bi bi-plus-circle me-1"></i>
+                บันทึกรายการ
+              </button>
+            </div>
+          `;
+        }
+      })
+      .getTransactionsWithCategories({});
+  }
+
+  // ฟังก์ชันโหลดกราฟวงกลมแสดงสัดส่วนรายการ
+  function loadTransactionPieChart() {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        const ctx = document.getElementById("transactionPieChart");
+        if (!ctx) return;
+
+        // ลบกราฟเก่าถ้ามี
+        if (window.pieChart) {
+          window.pieChart.destroy();
+        }
+
+        if (!res.success || !res.data || !res.data.length) {
+          ctx.parentElement.innerHTML = `
+            <div class="empty-state">
+              <i class="bi bi-pie-chart"></i>
+              <h5>ยังไม่มีข้อมูล</h5>
+              <p>ยังไม่มีรายการสำหรับแสดงกราฟ</p>
+              <button class="btn btn-primary btn-sm" onclick="showPage('addTransactionPage')">
+                <i class="bi bi-plus-circle me-1"></i>
+                บันทึกรายการ
+              </button>
+            </div>
+          `;
+          return;
+        }
+
+        // คำนวณสัดส่วนของแต่ละประเภท
+        const typeStats = {
+          income: { total: 0, count: 0 },
+          expense: { total: 0, count: 0 },
+          cost: { total: 0, count: 0 },
+        };
+
+        res.data.forEach((tx) => {
+          if (typeStats[tx.type_id]) {
+            typeStats[tx.type_id].total += parseFloat(tx.amount);
+            typeStats[tx.type_id].count += 1;
+          }
+        });
+
+        const data = [];
+        const labels = [];
+        const colors = [];
+
+        if (typeStats.income.total > 0) {
+          data.push(typeStats.income.total);
+          labels.push("รายรับ");
+          colors.push("#28a745");
+        }
+
+        if (typeStats.expense.total > 0) {
+          data.push(typeStats.expense.total);
+          labels.push("รายจ่าย");
+          colors.push("#dc3545");
+        }
+
+        if (typeStats.cost.total > 0) {
+          data.push(typeStats.cost.total);
+          labels.push("ต้นทุน");
+          colors.push("#ffc107");
+        }
+
+        if (data.length === 0) {
+          ctx.parentElement.innerHTML = `
+            <div class="empty-state">
+              <i class="bi bi-pie-chart"></i>
+              <h5>ยังไม่มีข้อมูล</h5>
+              <p>ยังไม่มีรายการสำหรับแสดงกราฟ</p>
+              <button class="btn btn-primary btn-sm" onclick="showPage('addTransactionPage')">
+                <i class="bi bi-plus-circle me-1"></i>
+                บันทึกรายการ
+              </button>
+            </div>
+          `;
+          return;
+        }
+
+        window.pieChart = new Chart(ctx, {
+          type: "pie",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                data: data,
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: "#fff",
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "bottom",
+                labels: {
+                  usePointStyle: true,
+                  padding: 20,
+                },
+              },
+              tooltip: {
+                callbacks: {
+                  label: function (context) {
+                    const total = context.dataset.data.reduce(
+                      (a, b) => a + b,
+                      0
+                    );
+                    const percentage = ((context.parsed / total) * 100).toFixed(
+                      1
+                    );
+                    return `${context.label}: ${formatAmount(
+                      context.parsed
+                    )} ฿ (${percentage}%)`;
+                  },
+                },
+              },
+            },
+          },
+        });
+      })
+      .getTransactionsWithCategories({});
+  }
+
+  // ใช้ moment.js แทน Date
+  function formatDate(dateStr) {
+    if (!dateStr) return "-";
+    // ใช้ moment แปลงเป็นเวลาไทย
+    return moment(dateStr).utcOffset(7).format("D MMM YYYY");
+  }
+
+  // --- ฟังก์ชันช่วยสำหรับกราฟแนวโน้ม ---
+  function getLocalDateString(dateStr) {
+    // คืนค่า yyyy-mm-dd (เวลาประเทศไทย)
+    return moment(dateStr).utcOffset(7).format("YYYY-MM-DD");
+  }
+
+  // ฟังก์ชันโหลดกราฟแนวโน้ม 7 วันล่าสุด
+  function loadWeeklyTrendChart() {
+    // ใช้ moment.js คำนวณวันที่ 7 วันล่าสุด (เวลาประเทศไทย)
+    const endDate = moment().utcOffset(7).endOf("day");
+    const startDate = moment(endDate).subtract(6, "days").startOf("day");
+
+    const dateRange = {
+      date_from: startDate.format("YYYY-MM-DD"),
+      date_to: endDate.format("YYYY-MM-DD"),
+    };
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        const ctx = document.getElementById("weeklyTrendChart");
+        if (!ctx) return;
+
+        // ลบกราฟเก่าถ้ามี
+        if (window.trendChart) {
+          window.trendChart.destroy();
+        }
+
+        if (!res.success || !res.data || !res.data.length) {
+          ctx.parentElement.innerHTML = `
+            <div class="empty-state">
+              <i class="bi bi-graph-up"></i>
+              <h5>ยังไม่มีข้อมูล</h5>
+              <p>ยังไม่มีรายการสำหรับแสดงแนวโน้ม</p>
+              <button class="btn btn-primary btn-sm" onclick="showPage('addTransactionPage')">
+                <i class="bi bi-plus-circle me-1"></i>
+                บันทึกรายการ
+              </button>
+            </div>
+          `;
+          return;
+        }
+
+        // สร้างข้อมูลรายวัน (เวลาประเทศไทย)
+        const dailyData = {};
+        const labels = [];
+
+        for (let i = 0; i < 7; i++) {
+          const date = moment(startDate).add(i, "days");
+          const dateStr = date.format("YYYY-MM-DD");
+          const label = date.format("D MMM");
+          labels.push(label);
+          dailyData[dateStr] = {
+            income: 0,
+            expense: 0,
+            cost: 0,
+          };
+        }
+
+        // จัดกลุ่มข้อมูลตามวันที่ (เวลาประเทศไทย)
+        res.data.forEach((tx) => {
+          const txDate = getLocalDateString(tx.created_at);
+          if (dailyData[txDate]) {
+            dailyData[txDate][tx.type_id] += parseFloat(tx.amount);
+          }
+        });
+
+        // แปลงข้อมูลเป็น arrays
+        const incomeData = [];
+        const expenseData = [];
+        const costData = [];
+
+        Object.keys(dailyData).forEach((dateStr) => {
+          incomeData.push(dailyData[dateStr].income);
+          expenseData.push(dailyData[dateStr].expense);
+          costData.push(dailyData[dateStr].cost);
+        });
+
+        window.trendChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: "รายรับ",
+                data: incomeData,
+                borderColor: "#28a745",
+                backgroundColor: "rgba(40, 167, 69, 0.1)",
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4,
+              },
+              {
+                label: "รายจ่าย",
+                data: expenseData,
+                borderColor: "#dc3545",
+                backgroundColor: "rgba(220, 53, 69, 0.1)",
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4,
+              },
+              {
+                label: "ต้นทุน",
+                data: costData,
+                borderColor: "#ffc107",
+                backgroundColor: "rgba(255, 193, 7, 0.1)",
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "top",
+                labels: {
+                  usePointStyle: true,
+                },
+              },
+              tooltip: {
+                callbacks: {
+                  label: function (context) {
+                    return `${context.dataset.label}: ${formatAmount(
+                      context.parsed.y
+                    )} ฿`;
+                  },
+                },
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: function (value) {
+                    return formatAmount(value) + " ฿";
+                  },
+                },
+                grid: {
+                  display: false, // ซ่อนเส้น grid แกน y
+                },
+              },
+            },
+            x: {
+              grid: {
+                display: false, // ซ่อนเส้น grid แกน x
+              },
+            },
+            interaction: {
+              intersect: false,
+              mode: "index",
+            },
+          },
+        });
+
+        hideLoading();
+      })
+      .getTransactionsWithCategories(dateRange);
+  }
+
+  // ----------------------
+  // Add Transaction (Form Array)
+  // ----------------------
+  document.addEventListener("DOMContentLoaded", function () {
+    const formArrayContainer = document.getElementById("transactionFormArray");
+    const addFormBtn = document.getElementById("addFormBtn");
+    const submitAllBtn = document.getElementById("submitAllBtn");
+    const cardTemplate = document.getElementById("transactionFormCardTemplate");
+
+    if (formArrayContainer && addFormBtn && cardTemplate) {
+      // เพิ่มการ์ดแรกโดยอัตโนมัติ
+      addTransactionCard();
+      addFormBtn.addEventListener("click", addTransactionCard);
+    }
+
+    function updateFormCardIndexes() {
+      const cards = formArrayContainer.querySelectorAll(
+        ".transaction-form-card"
+      );
+      cards.forEach((card, idx) => {
+        const indexEl = card.querySelector(".form-card-index");
+        if (indexEl) indexEl.textContent = idx + 1;
+        const removeBtn = card.querySelector(".remove-form-btn");
+        if (removeBtn) {
+          if (cards.length === 1) {
+            removeBtn.style.display = "none";
+          } else {
+            removeBtn.style.display = "";
+          }
+        }
+      });
+    }
+
+    function addTransactionCard() {
+      const clone = cardTemplate.content.cloneNode(true);
+      const card = clone.querySelector(".transaction-form-card");
+      const form = card.querySelector(".addTransactionForm");
+      const typeSelect = card.querySelector(".type-select");
+      const categorySelect = card.querySelector(".category-select");
+      const removeBtn = card.querySelector(".remove-form-btn");
+
+      // โหลดหมวดหมู่เมื่อเลือกประเภท
+      typeSelect.addEventListener("change", function () {
+        const typeId = typeSelect.value;
+        categorySelect.innerHTML = '<option value="">เลือกหมวดหมู่</option>';
+        categorySelect.disabled = true;
+        if (typeId) {
+          showLoading("กำลังโหลดหมวดหมู่...");
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (res.success && res.data && res.data.length) {
+                res.data.forEach((cat) => {
+                  const opt = document.createElement("option");
+                  opt.value = cat.id;
+                  opt.textContent = cat.name;
+                  categorySelect.appendChild(opt);
+                });
+                categorySelect.disabled = false;
+              }
+              hideLoading();
+            })
+            .getCategoriesByType(typeId);
+        }
+      });
+
+      // ลบการ์ด
+      removeBtn.addEventListener("click", function () {
+        card.remove();
+        updateFormCardIndexes();
+      });
+
+      formArrayContainer.appendChild(clone);
+      updateFormCardIndexes();
+    }
+
+    // Submit ข้อมูลทั้งหมด
+    if (submitAllBtn) {
+      submitAllBtn.addEventListener("click", function () {
+        const allCards = formArrayContainer.querySelectorAll(
+          ".transaction-form-card"
+        );
+        const dataArr = [];
+        let valid = true;
+        allCards.forEach((card) => {
+          const type = card.querySelector(".type-select").value;
+          const category = card.querySelector(".category-select").value;
+          const amount = card.querySelector(".amount-input").value;
+          const description = card.querySelector(".description-input").value;
+          const note = card.querySelector(".note-input").value;
+          if (!type || !category || !amount) valid = false;
+          dataArr.push({ type, category, amount, description, note });
+        });
+        if (!valid) {
+          showError("กรุณากรอกข้อมูลให้ครบทุกช่องที่จำเป็น");
+          return;
+        }
+        showLoading();
+        let successCount = 0;
+        let failCount = 0;
+        dataArr.forEach((item, idx) => {
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (res.success) {
+                successCount++;
+              } else {
+                failCount++;
+              }
+              if (successCount + failCount === dataArr.length) {
+                hideLoading();
+                if (successCount)
+                  showSuccess("บันทึกสำเร็จ " + successCount + " รายการ");
+                if (failCount)
+                  showError("บันทึกไม่สำเร็จ " + failCount + " รายการ");
+                // รีเซ็ตฟอร์ม
+                formArrayContainer.innerHTML = "";
+                addTransactionCard();
+                refreshDashboard();
+              }
+            })
+            .addTransaction(
+              item.type,
+              item.category,
+              item.amount,
+              item.description,
+              item.note
+            );
+        });
+      });
+    }
+  });
+
+  // ----------------------
+  // View Transactions
+  // ----------------------
+  // document.addEventListener("DOMContentLoaded", function () {
+  //   if (document.getElementById("transactionsTableBody")) loadTransactions();
+  // });
+
+  document.addEventListener("DOMContentLoaded", function () {
+    // --- Filter form logic for view-transactions ---
+    const filterForm = document.getElementById("filterForm");
+    const filterType = document.getElementById("filterType");
+    const filterCategory = document.getElementById("filterCategory");
+
+    // โหลดหมวดหมู่เมื่อเลือกประเภท
+    if (filterType && filterCategory) {
+      filterType.addEventListener("change", function () {
+        const typeId = filterType.value;
+        filterCategory.innerHTML = '<option value="">ทุกหมวดหมู่</option>';
+        filterCategory.disabled = true;
+        if (typeId) {
+          showLoading("กำลังโหลดหมวดหมู่...");
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (res.success && res.data && res.data.length) {
+                res.data.forEach((cat) => {
+                  const opt = document.createElement("option");
+                  opt.value = cat.id;
+                  opt.textContent = cat.name;
+                  filterCategory.appendChild(opt);
+                });
+                filterCategory.disabled = false;
+              }
+              hideLoading();
+            })
+            .getCategoriesByType(typeId);
+        }
+      });
+    }
+
+    // Submit filter form
+    if (filterForm) {
+      filterForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        // ดึงค่าจากฟอร์ม
+        const typeId = filterType.value;
+        const categoryId = filterCategory.value;
+        const dateFrom = document.getElementById("filterDateFrom").value;
+        const dateTo = document.getElementById("filterDateTo").value;
+
+        // เรียกฟังก์ชันโหลดรายการใหม่ (ต้องมีฟังก์ชันนี้)
+        loadTransactionsWithFilter({
+          type_id: typeId,
+          category_id: categoryId,
+          date_from: dateFrom,
+          date_to: dateTo,
+        });
+      });
+    }
+  });
+
+  // ฟังก์ชันโหลดรายการโดยใช้ filter
+  function loadTransactionsWithFilter(filters) {
+    showLoading();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        hideLoading();
+        const tbody = document.getElementById("transactionsTableBody");
+        tbody.innerHTML = "";
+        if (res.success && res.data && res.data.length) {
+          res.data.forEach((tx) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+            <td>${formatDate(tx.created_at)}</td>
+            <td><span class="badge type-${tx.type_id}">${typeLabel(
+              tx.type_id
+            )}</span></td>
+            <td>${tx.category_name}</td>
+            <td class="text-end amount ${tx.type_id}">${formatAmount(
+              tx.amount
+            )} ฿</td>
+            <td>${tx.description || "-"}</td>
+            <td>${tx.note || "-"}</td>
+            <td class="text-center">
+              <button class="btn btn-sm btn-warning me-1" onclick="editTransaction('${
+                tx.id
+              }')"><i class="bi bi-pencil"></i></button>
+              <button class="btn btn-sm btn-danger" onclick="deleteTransaction('${
+                tx.rowIndex
+              }')"><i class="bi bi-trash"></i></button>
+            </td>
+          `;
+            tbody.appendChild(tr);
+          });
+        } else {
+          tbody.innerHTML = `<tr class="empty-state"><td colspan="7"><i class="bi bi-inbox"></i><h5>ยังไม่มีรายการ</h5><p>ยังไม่มีข้อมูลธุรกรรมในระบบ</p></td></tr>`;
+        }
+      })
+      .getTransactionsWithCategories(filters);
+  }
+
+  function loadTransactions() {
+    console.log({ info: "loadTransactions" });
+    showLoading();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        hideLoading();
+
+        const tbody = document.getElementById("transactionsTableBody");
+        tbody.innerHTML = "";
+        if (res.success && res.data && res.data.length) {
+          res.data.forEach((tx) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+          <td>${formatDate(tx.created_at)}</td>
+          <td><span class="badge type-${tx.type_id}">${typeLabel(
+              tx.type_id
+            )}</span></td>
+          <td>${tx.category_name}</td>
+          <td class="text-end amount ${tx.type_id}">${formatAmount(
+              tx.amount
+            )} ฿</td>
+          <td>${tx.description || "-"}</td>
+          <td>${tx.note || "-"}</td>
+          <td class="text-center">
+            <button class="btn btn-sm btn-warning me-1" onclick="editTransaction('${
+              tx.id
+            }')"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-danger" onclick="deleteTransaction('${
+              tx.rowIndex
+            }')"><i class="bi bi-trash"></i></button>
+          </td>
+        `;
+            tbody.appendChild(tr);
+          });
+        } else {
+          tbody.innerHTML = `<tr class="empty-state"><td colspan="7"><i class="bi bi-inbox"></i><h5>ยังไม่มีรายการ</h5><p>ยังไม่มีข้อมูลธุรกรรมในระบบ</p></td></tr>`;
+        }
+      })
+      .getTransactionsWithCategories({});
+  }
+
+  function editTransaction(id) {
+    showLoading();
+    // ดึงข้อมูลธุรกรรมทั้งหมด แล้วหา id ที่ต้องการ
+    google.script.run
+      .withSuccessHandler(function (res) {
+        hideLoading();
+        if (res.success && res.data && res.data.length) {
+          const tx = res.data.find((t) => t.id === id);
+          if (!tx) return showError("ไม่พบรายการธุรกรรมที่ต้องการแก้ไข");
+          // เติมข้อมูลลงฟอร์ม
+          document.getElementById("editTransactionId").value = tx.id;
+          document.getElementById("editAmountInput").value = tx.amount;
+          document.getElementById("editDescriptionInput").value =
+            tx.description || "";
+          document.getElementById("editNoteInput").value = tx.note || "";
+          // เลือกประเภท
+          const typeSelect = document.getElementById("editTypeSelect");
+          typeSelect.value = tx.type_id;
+          // โหลดหมวดหมู่ของประเภทนั้น
+          const categorySelect = document.getElementById("editCategorySelect");
+          categorySelect.innerHTML = '<option value="">เลือกหมวดหมู่</option>';
+          categorySelect.disabled = true;
+          if (tx.type_id) {
+            showLoading("กำลังโหลดหมวดหมู่...");
+            google.script.run
+              .withSuccessHandler(function (catRes) {
+                hideLoading();
+                if (catRes.success && catRes.data && catRes.data.length) {
+                  catRes.data.forEach((cat) => {
+                    const opt = document.createElement("option");
+                    opt.value = cat.id;
+                    opt.textContent = cat.name;
+                    categorySelect.appendChild(opt);
+                  });
+                  categorySelect.disabled = false;
+                  categorySelect.value = tx.category_id;
+                }
+              })
+              .getCategoriesByType(tx.type_id);
+          }
+          // เปิด modal
+          if (window.bootstrap)
+            bootstrap.Modal.getOrCreateInstance(
+              document.getElementById("editTransactionModal")
+            ).show();
+        } else {
+          showError("ไม่พบข้อมูลธุรกรรม");
+        }
+      })
+      .getTransactionsWithCategories({});
+  }
+
+  // handle change ประเภทใน modal edit
+  (function () {
+    document.addEventListener("DOMContentLoaded", function () {
+      const typeSelect = document.getElementById("editTypeSelect");
+      const categorySelect = document.getElementById("editCategorySelect");
+      if (typeSelect && categorySelect) {
+        typeSelect.addEventListener("change", function () {
+          const typeId = typeSelect.value;
+          categorySelect.innerHTML = '<option value="">เลือกหมวดหมู่</option>';
+          categorySelect.disabled = true;
+          if (typeId) {
+            showLoading("กำลังโหลดหมวดหมู่...");
+            google.script.run
+              .withSuccessHandler(function (res) {
+                hideLoading();
+                if (res.success && res.data && res.data.length) {
+                  res.data.forEach((cat) => {
+                    const opt = document.createElement("option");
+                    opt.value = cat.id;
+                    opt.textContent = cat.name;
+                    categorySelect.appendChild(opt);
+                  });
+                  categorySelect.disabled = false;
+                }
+              })
+              .getCategoriesByType(typeId);
+          }
+        });
+      }
+    });
+  })();
+
+  // handle submit ฟอร์มแก้ไขธุรกรรม
+  (function () {
+    document.addEventListener("DOMContentLoaded", function () {
+      const editForm = document.getElementById("editTransactionForm");
+      if (editForm) {
+        editForm.addEventListener("submit", function (e) {
+          e.preventDefault();
+          const id = document.getElementById("editTransactionId").value;
+          const type = document.getElementById("editTypeSelect").value;
+          const category = document.getElementById("editCategorySelect").value;
+          const amount = document.getElementById("editAmountInput").value;
+          const description = document
+            .getElementById("editDescriptionInput"
+          ).value;
+          const note = document.getElementById("editNoteInput").value;
+          if (!id || !type || !category || !amount) {
+            showError("กรุณากรอกข้อมูลให้ครบทุกช่องที่จำเป็น");
+            return;
+          }
+
+          if (window.bootstrap)
+            bootstrap.Modal.getOrCreateInstance(
+              document.getElementById("editTransactionModal")
+            ).hide();
+
+          showLoading();
+          // หา rowIndex ของธุรกรรม
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (res.success && res.data && res.data.length) {
+                const tx = res.data.find((t) => t.id === id);
+                if (!tx) {
+                  hideLoading();
+                  return showError("ไม่พบรายการธุรกรรม");
+                }
+                const rowIndex = tx.rowIndex;
+                const data = {
+                  id,
+                  type_id: type,
+                  category_id: category,
+                  amount,
+                  description,
+                  note,
+                  created_at: tx.created_at,
+                };
+                google.script.run
+                  .withSuccessHandler(function (updateRes) {
+                    hideLoading();
+                    if (updateRes.success) {
+                      showSuccess("แก้ไขรายการสำเร็จ");
+                      setTimeout(() => {
+                        refreshDashboard();
+                      }, 500);
+                    } else {
+                      showError(updateRes.error || "แก้ไขรายการไม่สำเร็จ");
+                    }
+                  })
+                  .updateData(rowIndex, "transactions", data);
+              } else {
+                hideLoading();
+                showError("ไม่พบข้อมูล");
+              }
+            })
+            .getTransactionsWithCategories({});
+        });
+      }
+    });
+  })();
+
+  function deleteTransaction(rowIndex) {
+    showModalConfirm("ยืนยันการลบรายการนี้?").then((ok) => {
+      if (!ok) return;
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function (res) {
+          hideLoading();
+          if (res.success) {
+            showSuccess("ลบรายการสำเร็จ");
+            loadTransactions();
+
+            // อัปเดตแดชบอร์ดหลังจากลบรายการ
+            setTimeout(() => {
+              refreshDashboard();
+            }, 500);
+          } else {
+            showError(res.error || "ลบรายการไม่สำเร็จ");
+          }
+        })
+        .deleteData(Number(rowIndex));
+    });
+  }
+
+  // ----------------------
+  // Reports
+  // ----------------------
+  document.addEventListener("DOMContentLoaded", function () {
+    // --- Filter form logic for reports ---
+    const reportFilterForm = document.getElementById("reportFilterForm");
+    const reportType = document.getElementById("reportType");
+    const reportCategory = document.getElementById("reportCategory");
+
+    // โหลดหมวดหมู่เมื่อเลือกประเภท
+    if (reportType && reportCategory) {
+      reportType.addEventListener("change", function () {
+        const typeId = reportType.value;
+        reportCategory.innerHTML = '<option value="">ทุกหมวดหมู่</option>';
+        reportCategory.disabled = true;
+        if (typeId) {
+          showLoading("กำลังโหลดหมวดหมู่...");
+          google.script.run
+            .withSuccessHandler(function (res) {
+              if (res.success && res.data && res.data.length) {
+                res.data.forEach((cat) => {
+                  const opt = document.createElement("option");
+                  opt.value = cat.id;
+                  opt.textContent = cat.name;
+                  reportCategory.appendChild(opt);
+                });
+                reportCategory.disabled = false;
+              }
+              hideLoading();
+            })
+            .getCategoriesByType(typeId);
+        }
+      });
+    }
+
+    // ตั้งค่าวันที่เริ่มต้น
+    setDefaultReportDates();
+
+    // Submit filter form
+    if (reportFilterForm) {
+      reportFilterForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        // ดึงค่าจากฟอร์ม
+        const typeId = reportType.value;
+        const categoryId = reportCategory.value;
+        const dateFrom = document.getElementById("reportDateFrom").value;
+        const dateTo = document.getElementById("reportDateTo").value;
+
+        // เรียกฟังก์ชันโหลดรายงานใหม่
+        loadReportWithFilter({
+          type_id: typeId,
+          category_id: categoryId,
+          date_from: dateFrom,
+          date_to: dateTo,
+        });
+      });
+    }
+  });
+
+  // ฟังก์ชันโหลดรายงานโดยใช้ filter
+  function loadReportWithFilter(filters) {
+    showLoading();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        hideLoading();
+
+        // Summary Cards
+        if (res.success && res.data) {
+          document.getElementById("reportTotalIncome").textContent =
+            "" + formatAmount(res.data.total_income) + " ฿";
+          document.getElementById("reportTotalExpense").textContent =
+            "" + formatAmount(res.data.total_expense) + " ฿";
+          document.getElementById("reportTotalCost").textContent =
+            "" + formatAmount(res.data.total_cost) + " ฿";
+          document.getElementById("reportTotalProfit").textContent =
+            "" + formatAmount(res.data.profit) + " ฿";
+
+          // จัดการ profit card ในหน้า reports
+          const reportProfitCard = document.getElementById("reportProfitCard");
+          if (reportProfitCard) {
+            if (res.data.profit < 0) {
+              reportProfitCard.classList.add("negative");
+            } else {
+              reportProfitCard.classList.remove("negative");
+            }
+          }
+
+          // อัปเดตกราฟ
+          updateReportCharts(res.transactions || []);
+        }
+
+        // Table
+        const tbody = document.getElementById("reportTableBody");
+        tbody.innerHTML = "";
+        if (res.transactions && res.transactions.length) {
+          res.transactions.forEach((tx) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+            <td>${formatDate(tx.created_at)}</td>
+            <td><span class="badge type-${tx.type_id}">${typeLabel(
+              tx.type_id
+            )}</span></td>
+            <td>${tx.category_name}</td>
+            <td class="text-end amount ${tx.type_id}">${formatAmount(
+              tx.amount
+            )} ฿</td>
+            <td>${tx.description || "-"}</td>
+            <td>${tx.note || "-"}</td>
+          `;
+            tbody.appendChild(tr);
+          });
+        } else {
+          tbody.innerHTML = `<tr class="empty-state"><td colspan="6"><i class="bi bi-inbox"></i><h5>ยังไม่มีข้อมูลรายงาน</h5><p>ยังไม่มีข้อมูลธุรกรรมในช่วงเวลานี้</p></td></tr>`;
+        }
+      })
+      .generateReport(filters);
+  }
+
+  // ฟังก์ชันอัปเดตกราฟในหน้า reports
+  function updateReportCharts(transactions) {
+    // อัปเดตกราฟแท่ง
+    updateSummaryBarChart(transactions);
+    // อัปเดตกราฟวงกลม
+    updateCategoryPieChart(transactions);
+  }
+
+  // ฟังก์ชันอัปเดตกราฟแท่งสรุป
+  function updateSummaryBarChart(transactions) {
+    const ctx = document.getElementById("summaryBarChart");
+    if (!ctx) return;
+
+    // ลบกราฟเก่าถ้ามี
+    if (window.summaryBarChart instanceof Chart) {
+      window.summaryBarChart.destroy();
+    }
+
+    if (!transactions || transactions.length === 0) {
+      ctx.parentElement.innerHTML = `
+        <div class="empty-state">
+          <i class="bi bi-bar-chart"></i>
+          <h5>ยังไม่มีข้อมูล</h5>
+          <p>ยังไม่มีรายการสำหรับแสดงกราฟ</p>
+        </div>
+      `;
+      return;
+    }
+
+    // คำนวณยอดรวมแต่ละประเภท
+    const typeStats = {
+      income: 0,
+      expense: 0,
+      cost: 0,
+    };
+
+    transactions.forEach((tx) => {
+      if (typeStats[tx.type_id] !== undefined) {
+        typeStats[tx.type_id] += parseFloat(tx.amount);
+      }
+    });
+
+    window.summaryBarChart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: ["รายรับ", "รายจ่าย", "ต้นทุน"],
+        datasets: [
+          {
+            data: [typeStats.income, typeStats.expense, typeStats.cost],
+            backgroundColor: ["#28a745", "#dc3545", "#ffc107"],
+            borderWidth: 1,
+            borderColor: ["#28a745", "#dc3545", "#ffc107"],
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false,
+          },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                return `${context.label}: ${formatAmount(context.parsed.y)} ฿`;
+              },
+            },
+          },
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value) {
+                return formatAmount(value) + " ฿";
+              },
+            },
+            grid: {
+              display: false, // ซ่อนเส้น grid แกน x
+            },
+          },
+          x: {
+            grid: {
+              display: false, // ซ่อนเส้น grid แกน x
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // ฟังก์ชันอัปเดตกราฟวงกลมหมวดหมู่
+  function updateCategoryPieChart(transactions) {
+    const ctx = document.getElementById("categoryPieChart");
+    if (!ctx) return;
+
+    // ลบกราฟเก่าถ้ามี
+    if (window.categoryPieChart instanceof Chart) {
+      window.categoryPieChart.destroy();
+    }
+
+    if (!transactions || transactions.length === 0) {
+      ctx.parentElement.innerHTML = `
+        <div class="empty-state">
+          <i class="bi bi-pie-chart"></i>
+          <h5>ยังไม่มีข้อมูล</h5>
+          <p>ยังไม่มีรายการสำหรับแสดงกราฟ</p>
+        </div>
+      `;
+      return;
+    }
+
+    // คำนวณสัดส่วนของแต่ละหมวดหมู่
+    const categoryStats = {};
+    transactions.forEach((tx) => {
+      if (!categoryStats[tx.category_name]) {
+        categoryStats[tx.category_name] = 0;
+      }
+      categoryStats[tx.category_name] += parseFloat(tx.amount);
+    });
+
+    const labels = Object.keys(categoryStats);
+    const data = Object.values(categoryStats);
+    const colors = [
+      "#28a745",
+      "#dc3545",
+      "#ffc107",
+      "#17a2b8",
+      "#6f42c1",
+      "#fd7e14",
+      "#e83e8c",
+      "#20c997",
+      "#6c757d",
+      "#343a40",
+    ];
+
+    window.categoryPieChart = new Chart(ctx, {
+      type: "pie",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            data: data,
+            backgroundColor: colors.slice(0, labels.length),
+            borderWidth: 2,
+            borderColor: "#fff",
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: {
+              usePointStyle: true,
+              padding: 20,
+            },
+          },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                const percentage = ((context.parsed / total) * 100).toFixed(1);
+                return `${context.label}: ${formatAmount(
+                  context.parsed
+                )} ฿ (${percentage}%)`;
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function loadReport() {
+    // เรียกใช้ฟังก์ชันใหม่ที่รองรับ filters
+    loadReportWithFilter({});
+  }
+
+  function exportPDF() {
+    const table = document.querySelector(".table-responsive table");
+    if (!table) return showError("ไม่พบตารางรายงาน");
+
+    const cloneTable = table.cloneNode(true);
+    removeManageColumn(cloneTable);
+    formatTableDateColumn(cloneTable);
+
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = '<div id="pdf-wrapper"></div>';
+    tempDiv.querySelector("#pdf-wrapper").appendChild(cloneTable);
+    tempDiv.style.position = "fixed";
+    tempDiv.style.left = "-9999px";
+    tempDiv.style.top = "0";
+    document.body.appendChild(tempDiv);
+
+    // โหลด html2canvas และ jsPDF ถ้ายังไม่มี
+    function doExport() {
+      html2canvas(tempDiv.querySelector("#pdf-wrapper"))
+        .then((canvas) => {
+          const imgData = canvas.toDataURL("image/png");
+          const pdf = new jsPDF({
+            orientation: "portrait",
+            unit: "pt",
+            format: "a4",
+          });
+          const pageWidth = pdf.internal.pageSize.getWidth();
+          const pageHeight = pdf.internal.pageSize.getHeight();
+          // คำนวณขนาดภาพให้พอดีหน้า
+          const imgWidth = pageWidth - 40;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+          pdf.addImage(imgData, "PNG", 20, 20, imgWidth, imgHeight);
+          pdf.save("CashMate-Report.pdf");
+          if (tempDiv && tempDiv.parentNode)
+            tempDiv.parentNode.removeChild(tempDiv);
+        })
+        .catch((err) => {
+          if (tempDiv && tempDiv.parentNode)
+            tempDiv.parentNode.removeChild(tempDiv);
+          showError("เกิดข้อผิดพลาดในการสร้าง PDF");
+          console.error("PDF Export Error:", err);
+        });
+    }
+
+    if (typeof html2canvas === "undefined" || typeof jsPDF === "undefined") {
+      const script1 = document.createElement("script");
+      script1.src =
+        "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      script1.onload = () => {
+        const script2 = document.createElement("script");
+        script2.src =
+          "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+        script2.onload = () => {
+          window.jsPDF = window.jspdf.jsPDF; // สำหรับ jsPDF UMD
+          doExport();
+        };
+        document.body.appendChild(script2);
+      };
+      document.body.appendChild(script1);
+    } else {
+      doExport();
+    }
+  }
+
+  function exportExcel() {
+    const table = document.querySelector(".table-responsive table");
+    if (!table) return showError("ไม่พบตารางรายงาน");
+    // clone table เพื่อปรับแต่งก่อน export
+    const cloneTable = table.cloneNode(true);
+    // ลบ column การจัดการ (ถ้ามี)
+    removeManageColumn(cloneTable);
+    // แปลงวันที่ใน column แรกด้วย formatDate()
+    formatTableDateColumn(cloneTable);
+    if (typeof XLSX === "undefined") {
+      const script = document.createElement("script");
+      script.src =
+        "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      script.onload = () => doExportExcel(cloneTable);
+      document.body.appendChild(script);
+    } else {
+      doExportExcel(cloneTable);
+    }
+    function doExportExcel(tableEl) {
+      const wb = XLSX.utils.table_to_book(tableEl, { sheet: "Report" });
+      XLSX.writeFile(wb, "CashMate-Report.xlsx");
+    }
+  }
+
+  // ฟังก์ชันช่วย: ลบ column การจัดการ (ปุ่ม) ออกจาก table
+  function removeManageColumn(table) {
+    // หาหัวตารางก่อน
+    const thead = table.querySelector("thead");
+    if (thead) {
+      const ths = thead.querySelectorAll("th");
+      ths.forEach((th, idx) => {
+        if (th.textContent.includes("การจัดการ")) {
+          // ลบ th
+          th.remove();
+          // ลบ td ในแต่ละแถว
+          table.querySelectorAll("tbody tr").forEach((tr) => {
+            const tds = tr.querySelectorAll("td");
+            if (tds[idx]) tds[idx].remove();
+          });
+        }
+      });
+    }
+  }
+  // ฟังก์ชันช่วย: แปลงวันที่ใน column แรกของแต่ละแถวด้วย formatDate()
+  function formatTableDateColumn(table) {
+    const rows = table.querySelectorAll("tbody tr");
+    rows.forEach((tr) => {
+      const td = tr.querySelector("td");
+      if (td && td.textContent && !td.classList.contains("empty-state")) {
+        td.textContent = formatDate(td.textContent.trim());
+      }
+    });
+  }
+
+  function printReport() {
+    showError("ฟีเจอร์พิมพ์รายงานยังไม่เปิดใช้งาน");
+  }
+
+  // ----------------------
+  // Categories Management
+  // ----------------------
+  document.addEventListener("DOMContentLoaded", function () {
+    // if (document.getElementById("categoriesTableBody")) loadCategories();
+
+    // เชื่อมปุ่มเปิด modal เพิ่มหมวดหมู่
+    const addCategoryBtn = document.getElementById("addCategoryBtn");
+    const addCategoryModal = document.getElementById("addCategoryModal");
+    if (addCategoryBtn && addCategoryModal) {
+      addCategoryBtn.addEventListener("click", function () {
+        if (window.bootstrap)
+          bootstrap.Modal.getOrCreateInstance(addCategoryModal).show();
+      });
+    }
+
+    // handle submit ฟอร์มเพิ่มหมวดหมู่
+    const addCategoryForm = document.getElementById("addCategoryForm");
+    if (addCategoryForm) {
+      addCategoryForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+
+        bootstrap.Modal.getOrCreateInstance(addCategoryModal).hide();
+
+        showLoading();
+        const typeSelect = document.getElementById("categoryType");
+        const typeId = typeSelect ? typeSelect.value : "";
+        const name = document.getElementById("newCategoryName").value.trim();
+        const description = document
+          .getElementById("newCategoryDescription")
+          .value.trim();
+        const note = document.getElementById("newCategoryNote").value.trim();
+        if (!typeId || !name) return showError("กรุณากรอกชื่อหมวดหมู่");
+        showLoading();
+        google.script.run
+          .withSuccessHandler(function (res) {
+            hideLoading();
+            if (res.success) {
+              showSuccess("เพิ่มหมวดหมู่สำเร็จ");
+              addCategoryForm.reset();
+
+              setTimeout(() => {
+                loadCategories();
+              }, [500]);
+            } else {
+              showError(res.error || "เพิ่มหมวดหมู่ไม่สำเร็จ");
+            }
+          })
+          .addCategory(typeId, name, description, note);
+      });
+    }
+  });
+
+  function loadCategories() {
+    const typeSelect = document.getElementById("categoryType");
+    const tbody = document.getElementById("categoriesTableBody");
+    if (!typeSelect) return;
+    const typeId = typeSelect.value;
+
+    showLoading();
+
+    tbody.innerHTML = "";
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (res.success && res.data && res.data.length) {
+          res.data.forEach((cat) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+          <td>${cat.name}</td>
+          <td>${cat.description || "-"}</td>
+          <td>${cat.note || "-"}</td>
+          <td class="text-center">
+            <button class="btn btn-sm btn-warning me-1" onclick="editCategory('${
+              cat.id
+            }')"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-danger" onclick="deleteCategory('${
+              cat.id
+            }')"><i class="bi bi-trash"></i></button>
+          </td>
+        `;
+            tbody.appendChild(tr);
+          });
+        } else {
+          tbody.innerHTML = `<tr class="empty-state"><td colspan="4"><i class="bi bi-inbox"></i><h5>ยังไม่มีหมวดหมู่</h5><p>ยังไม่มีข้อมูลหมวดหมู่ในประเภทนี้</p></td></tr>`;
+        }
+
+        hideLoading();
+      })
+      .getCategoriesByType(typeId);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const typeSelect = document.getElementById("categoryType");
+    if (typeSelect) {
+      typeSelect.addEventListener("change", loadCategories);
+    }
+  });
+
+  function editCategory(id) {
+    // โหลดข้อมูลหมวดหมู่ที่ต้องการแก้ไข
+    const typeSelect = document.getElementById("categoryType");
+    const typeId = typeSelect ? typeSelect.value : "";
+    showLoading();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        hideLoading();
+        if (res.success && res.data && res.data.length) {
+          const cat = res.data.find((c) => c.id === id);
+          if (!cat) return showError("ไม่พบหมวดหมู่ที่ต้องการแก้ไข");
+          document.getElementById("editCategoryId").value = cat.id;
+          document.getElementById("editCategoryName").value = cat.name;
+          document.getElementById("editCategoryDescription").value =
+            cat.description || "";
+          document.getElementById("editCategoryNote").value = cat.note || "";
+          if (window.bootstrap)
+            bootstrap.Modal.getOrCreateInstance(
+              document.getElementById("editCategoryModal")
+            ).show();
+        } else {
+          showError("ไม่พบข้อมูลหมวดหมู่");
+        }
+      })
+      .getCategoriesByType(typeId);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    // handle submit ฟอร์มแก้ไขหมวดหมู่
+    const editCategoryForm = document.getElementById("editCategoryForm");
+    const editCategoryModal = document.getElementById("editCategoryModal");
+    if (editCategoryForm && editCategoryModal) {
+      editCategoryForm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        const typeSelect = document.getElementById("categoryType");
+        const typeId = typeSelect ? typeSelect.value : "";
+        const id = document.getElementById("editCategoryId").value;
+        const name = document.getElementById("editCategoryName").value.trim();
+        const description = document
+          .getElementById("editCategoryDescription")
+          .value.trim();
+        const note = document.getElementById("editCategoryNote").value.trim();
+        if (!typeId || !id || !name) return showError("กรุณากรอกชื่อหมวดหมู่");
+
+        if (window.bootstrap)
+          bootstrap.Modal.getOrCreateInstance(editCategoryModal).hide();
+
+        showLoading();
+        // ต้องหา rowIndex ของหมวดหมู่
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (res.success && res.data && res.data.length) {
+              const cat = res.data.find((c) => c.id === id);
+              if (!cat) return showError("ไม่พบหมวดหมู่");
+              const rowIndex = cat.rowIndex;
+              const data = {
+                id,
+                type_id: typeId,
+                name,
+                description,
+                note,
+                created_at: cat.created_at,
+              };
+              google.script.run
+                .withSuccessHandler(function (updateRes) {
+                  hideLoading();
+                  if (updateRes.success) {
+                    showSuccess("แก้ไขหมวดหมู่สำเร็จ");
+
+                    editCategoryForm.reset();
+
+                    setTimeout(() => {
+                      loadCategories();
+                    }, [500]);
+                  } else {
+                    showError(updateRes.error || "แก้ไขหมวดหมู่ไม่สำเร็จ");
+                  }
+                })
+                .updateData(rowIndex, "categories", data);
+            } else {
+              hideLoading();
+              showError("ไม่พบข้อมูลหมวดหมู่");
+            }
+          })
+          .getCategoriesByType(typeId);
+      });
+    }
+  });
+
+  function deleteCategory(id) {
+    showModalConfirm("ยืนยันการลบหมวดหมู่นี้?").then((ok) => {
+      if (!ok) return;
+      // ตรวจสอบว่าหมวดหมู่ถูกใช้งานอยู่หรือไม่
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res.success && res.data && res.data.length) {
+            const cat = res.data.find((c) => c.id === id);
+            if (!cat) {
+              hideLoading();
+              return showError("ไม่พบหมวดหมู่");
+            }
+            const rowIndex = cat.rowIndex;
+            // ตรวจสอบการใช้งาน
+            google.script.run
+              .withSuccessHandler(function (checkRes) {
+                if (checkRes.success && checkRes.inUse) {
+                  hideLoading();
+                  showError("ไม่สามารถลบหมวดหมู่ที่ถูกใช้งานอยู่ได้");
+                } else {
+                  // ลบจริง
+                  google.script.run
+                    .withSuccessHandler(function (delRes) {
+                      hideLoading();
+                      if (delRes.success) {
+                        showSuccess("ลบหมวดหมู่สำเร็จ");
+
+                        setTimeout(() => {
+                          loadCategories();
+                        }, [500]);
+                      } else {
+                        showError(delRes.error || "ลบหมวดหมู่ไม่สำเร็จ");
+                      }
+                    })
+                    .deleteData(rowIndex);
+                }
+              })
+              .isCategoryInUse(id);
+          } else {
+            hideLoading();
+            showError("ไม่พบข้อมูลหมวดหมู่");
+          }
+        })
+        .getCategoriesByType(document.getElementById("categoryType").value);
+    });
+  }
+
+  // ----------------------
+  // Toast Notification
+  // ----------------------
+  function showSuccess(message) {
+    const toast = document.getElementById("successToast");
+    document.getElementById("successMessage").textContent = message;
+    if (window.bootstrap) bootstrap.Toast.getOrCreateInstance(toast).show();
+  }
+
+  function showError(message) {
+    const toast = document.getElementById("errorToast");
+    document.getElementById("errorMessage").textContent = message;
+    if (window.bootstrap) bootstrap.Toast.getOrCreateInstance(toast).show();
+  }
+
+  // ----------------------
+  // Utility Functions
+  // ----------------------
+  // ตั้งค่าวันที่เริ่มต้น (30 วันล่าสุด) เมื่อเปิดหน้า reports
+  function setDefaultReportDates() {
+    const reportDateFrom = document.getElementById("reportDateFrom");
+    const reportDateTo = document.getElementById("reportDateTo");
+    // if (reportDateFrom && reportDateTo) {
+    //   const endDate = moment().utcOffset(7).format("YYYY-MM-DD");
+    //   const startDate = moment()
+    //     .utcOffset(7)
+    //     .subtract(30, "days")
+    //     .format("YYYY-MM-DD");
+    //   reportDateFrom.value = startDate;
+    //   reportDateTo.value = endDate;
+    // }
+  }
+
+  function showLoading(message) {
+    const loadingText = message || "กำลังโหลดข้อมูล...";
+    const modal = document.getElementById("loadingModal");
+    // เปลี่ยนข้อความใน <h5> ของ loading modal
+    const h5 = modal.querySelector("h5");
+    if (h5) h5.textContent = loadingText;
+    if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).show();
+  }
+  function hideLoading() {
+    const modal = document.getElementById("loadingModal");
+    if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).hide();
+  }
+  function formatAmount(num) {
+    return Number(num).toLocaleString("th-TH", {
+      maximumFractionDigits: 2,
+    });
+  }
+  function typeLabel(typeId) {
+    switch (typeId) {
+      case "income":
+        return "รายรับ";
+      case "expense":
+        return "รายจ่าย";
+      case "cost":
+        return "ต้นทุน";
+      default:
+        return "-";
+    }
+  }
+
+  // ----------------------
+  // Modal Confirm (แทน window.alert/confirm)
+  // ----------------------
+  function showModalConfirm(message) {
+    return new Promise((resolve) => {
+      const modal = document.getElementById("modalConfirm");
+      const msg = document.getElementById("modalConfirmMessage");
+      const btnOk = document.getElementById("modalConfirmOk");
+      const btnCancel = document.getElementById("modalConfirmCancel");
+      if (!modal || !msg || !btnOk || !btnCancel) {
+        // fallback
+        resolve(confirm(message));
+        return;
+      }
+      msg.textContent = message;
+      // cleanup event ก่อนทุกครั้ง
+      btnOk.replaceWith(btnOk.cloneNode(true));
+      btnCancel.replaceWith(btnCancel.cloneNode(true));
+      const btnOkNew = document.getElementById("modalConfirmOk");
+      const btnCancelNew = document.getElementById("modalConfirmCancel");
+      let resolved = false;
+      function cleanup() {
+        btnOkNew.removeEventListener("click", onOk);
+        btnCancelNew.removeEventListener("click", onCancel);
+        modal.removeEventListener("hidden.bs.modal", onCancel);
+      }
+      function onOk() {
+        resolved = true;
+        cleanup();
+        if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).hide();
+        resolve(true);
+      }
+      function onCancel() {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          resolve(false);
+        }
+      }
+      btnOkNew.addEventListener("click", onOk);
+      btnCancelNew.addEventListener("click", onCancel);
+      modal.addEventListener("hidden.bs.modal", onCancel);
+      if (window.bootstrap) {
+        bootstrap.Modal.getOrCreateInstance(modal).show();
+      } else {
+        resolve(confirm(message));
+      }
+    });
+  }
+</script>

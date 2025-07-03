@@ -1,0 +1,95 @@
+<div class="container py-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-8 col-md-10">
+      <div id="transactionFormArray">
+        <!-- การ์ดฟอร์มแต่ละรายการจะถูกเพิ่มที่นี่ด้วย JS -->
+      </div>
+
+      <div class="d-flex justify-content-end gap-2 mt-3">
+        <button
+          type="button"
+          class="btn btn-secondary"
+          onclick="showPage('dashboardPage')"
+        >
+          <i class="bi bi-x-circle me-1"></i> ย้อนกลับ
+        </button>
+        <button id="addFormBtn" type="button" class="btn btn-success">
+          <i class="bi bi-plus-circle me-1"></i> เพิ่มรายการ
+        </button>
+        <button id="submitAllBtn" type="button" class="btn btn-primary">
+          <i class="bi bi-save me-1"></i> บันทึกทั้งหมด
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Template ฟอร์มการ์ด (ซ่อน) -->
+<template id="transactionFormCardTemplate">
+  <div class="card mb-3 transaction-form-card">
+    <div
+      class="card-header bg-primary text-white d-flex justify-content-between align-items-center"
+    >
+      <h4 class="mb-0 d-inline d-flex align-items-center gap-2">
+        <span class="form-card-index form-card-index-circle">1</span>
+        บันทึกรายการใหม่
+      </h4>
+      <button style="padding: 0 0.5rem;" type="button" class="btn btn-sm btn-danger remove-form-btn">
+        <i style="font-size: 1.5rem;" class="bi bi-x"></i>
+      </button>
+    </div>
+    <div class="card-body">
+      <form class="addTransactionForm">
+        <div class="mb-3">
+          <label class="form-label"
+            >ประเภท <span class="text-danger">*</span></label
+          >
+          <select class="form-select type-select" required>
+            <option value="">เลือกประเภท</option>
+            <option value="income">รายรับ</option>
+            <option value="expense">รายจ่าย</option>
+            <option value="cost">ต้นทุน</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label"
+            >หมวดหมู่ <span class="text-danger">*</span></label
+          >
+          <select class="form-select category-select" required disabled>
+            <option value="">เลือกหมวดหมู่</option>
+          </select>
+          <div class="form-text">* เลือกประเภทก่อนเพื่อแสดงหมวดหมู่</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label"
+            >จำนวนเงิน <span class="text-danger">*</span></label
+          >
+          <input
+            type="number"
+            class="form-control amount-input"
+            min="0"
+            step="0.01"
+            required
+            placeholder="กรอกจำนวนเงิน"
+          />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">รายละเอียด</label>
+          <input
+            type="text"
+            class="form-control description-input"
+            placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"
+          />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">หมายเหตุ</label>
+          <input
+            type="text"
+            class="form-control note-input"
+            placeholder="หมายเหตุ (ถ้ามี)"
+          />
+        </div>
+      </form>
+    </div>
+  </div>
+</template>

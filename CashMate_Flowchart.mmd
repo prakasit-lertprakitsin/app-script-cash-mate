@@ -1,0 +1,122 @@
+---
+config:
+  layout: dagre
+  theme: neo-dark
+---
+flowchart TD
+    A["เริ่มต้นระบบ"] --> B["หน้า Login"]
+    B --> C{"ตรวจสอบ User & Password<br>จากตาราง DB (type='user')"}
+    C -- ถูกต้อง --> D["เข้าสู่หน้าหลัก Dashboard"]
+    C -- ผิด --> E["แสดงข้อความแจ้งเตือน"]
+    E --> B
+    D --> F["แสดงเมนูหลัก<br>- บันทึกรายการ<br>- ดูรายการ<br>- รายงานสรุป<br>- จัดการหมวดหมู่<br>- ออกจากระบบ"]
+    F --> G["บันทึกรายการ"] & I["ดูรายการทั้งหมด"] & J["รายงานสรุป"] & M["จัดการหมวดหมู่"] & L["ออกจากระบบ"]
+    G --> G1["เลือกประเภท<br>INCOME | EXPENSE | COST"]
+    G1 --> G2["เลือกหมวดหมู่<br>ดึงข้อมูลจาก DB (type='categories')<br>ตาม type_id ที่เลือก"]
+    G2 --> G3["กรอกข้อมูลรายการ<br>- จำนวนเงิน (amount)<br>- รายละเอียด (description)<br>- หมายเหตุ (note)"]
+    G3 --> G4{"ตรวจสอบข้อมูล"}
+    G4 -- ถูกต้อง --> G5["บันทึกลง DB (type='list')<br>data: id, type_id, category_id, amount<br>description, note, created_at, updated_at"]
+    G4 -- ไม่ถูกต้อง --> G6["แสดงข้อความแจ้งเตือน"]
+    G6 --> G3
+    G5 --> G7["แสดงผลสำเร็จ"]
+    G7 --> F
+    I --> I1["เลือกตัวกรอง<br>- ประเภท (INCOME/EXPENSE/COST)<br>- หมวดหมู่<br>- ช่วงเวลา<br>- จำนวนเงิน"]
+    I1 --> I2["ดึงข้อมูลจาก DB<br>type='list' JOIN กับ type='categories'<br>ตามเงื่อนไขที่เลือก"]
+    I2 --> I3["แสดงรายการพร้อมตัวเลือก<br>- แก้ไข<br>- ลบ<br>- ค้นหา<br>- เรียงลำดับ"]
+    I3 --> I4{"เลือกการดำเนินการ"}
+    I4 -- แก้ไข --> I5["แก้ไขข้อมูล<br>อัปเดต updated_at"]
+    I4 -- ลบ --> I6["ยืนยันการลบ"]
+    I4 -- ค้นหา --> I7["ค้นหารายการ"]
+    I4 -- กลับ --> F
+    I5 --> I8["อัปเดตข้อมูลใน DB (type='list')"]
+    I6 --> I9{"ยืนยันการลบ?"}
+    I9 -- ใช่ --> I10["ลบข้อมูลจาก DB"]
+    I9 -- ไม่ --> I3
+    I7 --> I11["แสดงผลการค้นหา"]
+    I8 --> I3
+    I10 --> I3
+    I11 --> I3
+    J --> J1["เลือกประเภทรายงาน<br>- รายงานตามประเภท (INCOME/EXPENSE/COST)<br>- รายงานตามหมวดหมู่<br>- รายงานรายวัน/เดือน/ปี<br>- สรุปกำไรขาดทุน"]
+    J1 --> J2["เลือกช่วงเวลาและตัวกรอง"]
+    J2 --> J3["ดึงข้อมูลจาก DB<br>คำนวณสถิติและสรุป<br>- รายรับ (INCOME)<br>- รายจ่าย (EXPENSE)<br>- ต้นทุน (COST)<br>- กำไร = INCOME - EXPENSE - COST"]
+    J3 --> J4["แสดงรายงาน<br>- ตารางสรุป<br>- กราฟแท่ง/วงกลม<br>- เทรนด์ตามเวลา<br>- สรุปกำไรขาดทุน"]
+    J4 --> J5{"เลือกการดำเนินการ"}
+    J5 -- ส่งออก PDF --> J6["สร้างไฟล์ PDF"]
+    J5 -- ส่งออก Excel --> J7["สร้างไฟล์ Excel"]
+    J5 -- พิมพ์ --> J8["พิมพ์รายงาน"]
+    J5 -- กลับ --> F
+    J6 --> J9["ดาวน์โหลดไฟล์"]
+    J7 --> J9
+    J8 --> F
+    J9 --> F
+    M --> M1["แสดงประเภททั้งหมด<br>INCOME | EXPENSE | COST"]
+    M1 --> M2["เลือกประเภท"]
+    M2 --> M3["แสดงหมวดหมู่ตาม type_id<br>จาก DB (type='categories')"]
+    M3 --> M4{"เลือกการดำเนินการ"}
+    M4 -- เพิ่มใหม่ --> M5["เพิ่มหมวดหมู่ใหม่<br>data: id, type_id, name<br>description, note, created_at, updated_at"]
+    M4 -- แก้ไข --> M6["แก้ไขหมวดหมู่<br>อัปเดต updated_at"]
+    M4 -- ลบ --> M7["ตรวจสอบการใช้งาน<br>ใน DB (type='list')"]
+    M4 -- กลับ --> M1
+    M5 --> M8["บันทึกลง DB (type='categories')"]
+    M6 --> M8
+    M7 --> M9{"มีการใช้งานอยู่?"}
+    M9 -- ไม่มี --> M10["ลบจาก DB"]
+    M9 -- มี --> M11["แจ้งเตือนไม่สามารถลบได้"]
+    M8 --> M3
+    M10 --> M3
+    M11 --> M3
+    L --> L1{"ยืนยันการออกจากระบบ?"}
+    L1 -- ใช่ --> L2["ล้างข้อมูล Session"]
+    L1 -- ไม่ --> F
+    L2 --> B
+    style A fill:#e1f5fe,stroke:#01579b,stroke-width:3px,color:#01579b
+    style B fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#1976d2
+    style C fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px,color:#3f51b5
+    style D fill:#e8f5e8,stroke:#388e3c,stroke-width:3px,color:#2e7d32
+    style E fill:#ffebee,stroke:#d32f2f,stroke-width:2px,color:#d32f2f
+    style F fill:#fff3e0,stroke:#f57c00,stroke-width:3px,color:#ef6c00
+    style G fill:#e8f5e8,stroke:#4caf50,stroke-width:2px,color:#2e7d32
+    style I fill:#e3f2fd,stroke:#2196f3,stroke-width:2px,color:#1565c0
+    style J fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#7b1fa2
+    style L fill:#ffebee,stroke:#f44336,stroke-width:2px,color:#d32f2f
+    style M fill:#e0f2f1,stroke:#009688,stroke-width:2px,color:#00695c
+    style G1 fill:#f1f8e9,stroke:#8bc34a,stroke-width:2px,color:#558b2f
+    style G2 fill:#dcedc8,stroke:#8bc34a,stroke-width:2px,color:#689f38
+    style G3 fill:#e8f5e8,stroke:#4caf50,stroke-width:2px,color:#388e3c
+    style G4 fill:#e8f5e8,stroke:#4caf50,stroke-width:2px,color:#388e3c
+    style G5 fill:#c8e6c9,stroke:#4caf50,stroke-width:2px,color:#2e7d32
+    style G6 fill:#ffcdd2,stroke:#f44336,stroke-width:2px,color:#d32f2f
+    style G7 fill:#dcedc8,stroke:#8bc34a,stroke-width:2px,color:#689f38
+    style I1 fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px,color:#0277bd
+    style I2 fill:#e0f7fa,stroke:#00bcd4,stroke-width:2px,color:#00838f
+    style I3 fill:#e8f4fd,stroke:#2196f3,stroke-width:2px,color:#1565c0
+    style I4 fill:#e3f2fd,stroke:#2196f3,stroke-width:2px,color:#1976d2
+    style I5 fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#f57c00
+    style I6 fill:#ffebee,stroke:#f44336,stroke-width:2px,color:#d32f2f
+    style I7 fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#7b1fa2
+    style I8 fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#f57c00
+    style I9 fill:#ffebee,stroke:#f44336,stroke-width:2px,color:#d32f2f
+    style I10 fill:#ffcdd2,stroke:#f44336,stroke-width:2px,color:#d32f2f
+    style I11 fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#7b1fa2
+    style J1 fill:#ede7f6,stroke:#673ab7,stroke-width:2px,color:#512da8
+    style J2 fill:#e8eaf6,stroke:#3f51b5,stroke-width:2px,color:#303f9f
+    style J3 fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#7b1fa2
+    style J4 fill:#ede7f6,stroke:#673ab7,stroke-width:2px,color:#512da8
+    style J5 fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#7b1fa2
+    style J6 fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#f57c00
+    style J7 fill:#e8f5e8,stroke:#4caf50,stroke-width:2px,color:#388e3c
+    style J8 fill:#e0f2f1,stroke:#009688,stroke-width:2px,color:#00695c
+    style J9 fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#f57c00
+    style M1 fill:#e8f5e8,stroke:#4caf50,stroke-width:2px,color:#388e3c
+    style M2 fill:#f1f8e9,stroke:#8bc34a,stroke-width:2px,color:#558b2f
+    style M3 fill:#e0f2f1,stroke:#009688,stroke-width:2px,color:#00695c
+    style M4 fill:#e0f2f1,stroke:#009688,stroke-width:2px,color:#00695c
+    style M5 fill:#c8e6c9,stroke:#4caf50,stroke-width:2px,color:#2e7d32
+    style M6 fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#f57c00
+    style M7 fill:#ffebee,stroke:#f44336,stroke-width:2px,color:#d32f2f
+    style M8 fill:#dcedc8,stroke:#8bc34a,stroke-width:2px,color:#689f38
+    style M9 fill:#ffebee,stroke:#f44336,stroke-width:2px,color:#d32f2f
+    style M10 fill:#ffcdd2,stroke:#f44336,stroke-width:2px,color:#d32f2f
+    style M11 fill:#ff8a80,stroke:#f44336,stroke-width:2px,color:#c62828
+    style L1 fill:#ffcdd2,stroke:#f44336,stroke-width:2px,color:#d32f2f
+    style L2 fill:#ef9a9a,stroke:#f44336,stroke-width:2px,color:#c62828

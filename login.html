@@ -1,0 +1,69 @@
+<div class="login-container">
+  <div class="login-card">
+    <div class="login-header">
+      <div class="mb-3">
+        <i class="bi bi-cash-coin text-primary" style="font-size: 3rem"></i>
+      </div>
+      <h2>CashMate</h2>
+      <p>ระบบบันทึกรายรับรายจ่ายสำหรับร้านค้า</p>
+    </div>
+
+    <form id="loginForm">
+      <div class="mb-3">
+        <label for="username" class="form-label">
+          <i class="bi bi-person me-1"></i>
+          ชื่อผู้ใช้
+        </label>
+        <input
+          type="text"
+          class="form-control"
+          id="username"
+          name="username"
+          required
+          placeholder="กรอกชื่อผู้ใช้"
+        />
+      </div>
+
+      <div class="mb-4">
+        <label for="password" class="form-label">
+          <i class="bi bi-lock me-1"></i>
+          รหัสผ่าน
+        </label>
+        <div class="input-group">
+          <input
+            type="password"
+            class="form-control"
+            id="password"
+            name="password"
+            required
+            placeholder="กรอกรหัสผ่าน"
+          />
+          <button
+            class="btn btn-outline-secondary"
+            title="button"
+            type="button"
+            id="togglePassword"
+          >
+            <i class="bi bi-eye" id="togglePasswordIcon"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="d-grid">
+        <button type="submit" class="btn btn-primary btn-lg" id="loginBtn">
+          <i class="bi bi-box-arrow-in-right me-2"></i>
+          เข้าสู่ระบบ
+        </button>
+      </div>
+    </form>
+
+    <!-- <hr class="my-4" />
+
+    <div class="text-center">
+      <small class="text-muted">
+        <i class="bi bi-shield-check me-1"></i>
+        ระบบปลอดภัยด้วยการเข้ารหัสข้อมูล
+      </small>
+    </div> -->
+  </div>
+</div>

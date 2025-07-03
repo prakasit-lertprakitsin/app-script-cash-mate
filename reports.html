@@ -1,0 +1,167 @@
+<div class="container py-4" style="max-width: 1400px;">
+  <div class="row justify-content-center">
+    <div class="col-12">
+      <button
+        class="btn btn-outline-secondary hover:text-secondary btn-sm mb-4"
+        onclick="showPage('dashboardPage')"
+      >
+        <i class="bi bi-arrow-left"></i> ย้อนกลับ
+      </button>
+
+      <div class="card">
+        <div
+          class="card-header bg-primary text-white d-flex align-items-center justify-content-between"
+        >
+          <h4 class="mb-0 d-inline">
+            <i class="bi bi-bar-chart me-2"></i>
+            รายงานสรุป
+          </h4>
+        </div>
+        <div class="card-body">
+          <!-- Filter Form -->
+          <form class="row g-3 mb-4" id="reportFilterForm">
+            <div class="col-md-2">
+              <label for="reportType" class="form-label">ประเภท</label>
+              <select class="form-select" id="reportType" name="reportType">
+                <option value="">ทุกประเภท</option>
+                <option value="income">รายรับ</option>
+                <option value="expense">รายจ่าย</option>
+                <option value="cost">ต้นทุน</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label for="reportCategory" class="form-label">หมวดหมู่</label>
+              <select
+                class="form-select"
+                id="reportCategory"
+                name="reportCategory"
+                disabled
+              >
+                <option value="">ทุกหมวดหมู่</option>
+              </select>
+            </div>
+            <div class="col-md-2-5">
+              <label for="reportDateFrom" class="form-label">วันที่เริ่ม</label>
+              <input
+                type="date"
+                class="form-control"
+                id="reportDateFrom"
+                name="reportDateFrom"
+              />
+            </div>
+            <div class="col-md-2-5">
+              <label for="reportDateTo" class="form-label">ถึงวันที่</label>
+              <input
+                type="date"
+                class="form-control"
+                id="reportDateTo"
+                name="reportDateTo"
+              />
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <button
+                type="submit"
+                class="btn btn-primary w-100"
+                style="min-height: 50px"
+                id="filterSearchBtn"
+              >
+                <i class="bi bi-search"></i> ค้นหา
+              </button>
+            </div>
+          </form>
+
+          <!-- Summary Cards -->
+          <div class="row mb-4">
+            <div class="col-lg-3 col-md-6 mb-3">
+              <div class="stat-card income text-center">
+                <p class="stat-number" id="reportTotalIncome">0 ฿</p>
+                <p class="stat-label">รายรับรวม</p>
+              </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+              <div class="stat-card expense text-center">
+                <p class="stat-number" id="reportTotalExpense">0 ฿</p>
+                <p class="stat-label">รายจ่ายรวม</p>
+              </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+              <div class="stat-card cost text-center">
+                <p class="stat-number" id="reportTotalCost">0 ฿</p>
+                <p class="stat-label">ต้นทุนรวม</p>
+              </div>
+            </div>
+            <div class="col-lg-3 col-md-6 mb-3">
+              <div class="stat-card profit text-center" id="reportProfitCard">
+                <p class="stat-number" id="reportTotalProfit">0 ฿</p>
+                <p class="stat-label">กำไร/ขาดทุน</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts -->
+          <div class="row mb-4">
+            <div class="col-lg-6 mb-3">
+              <div class="card">
+                <div class="card-header bg-info text-white">
+                  <i class="bi bi-bar-chart me-2"></i> กราฟรายรับ/รายจ่าย/ต้นทุน
+                </div>
+                <div class="card-body">
+                  <div class="chart-container" style="height: 300px">
+                    <canvas id="summaryBarChart"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-lg-6 mb-3">
+              <div class="card">
+                <div class="card-header bg-success text-white">
+                  <i class="bi bi-pie-chart me-2"></i> สัดส่วนตามหมวดหมู่
+                </div>
+                <div class="card-body">
+                  <div class="chart-container" style="height: 300px">
+                    <canvas id="categoryPieChart"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Export Buttons -->
+          <div class="mb-4 d-flex gap-2 justify-content-end">
+            <button class="btn btn-outline-secondary" type="button" onclick="exportPDF()">
+              <i class="bi bi-file-earmark-pdf me-1"></i> ส่งออก PDF
+            </button>
+            <button class="btn btn-outline-success" type="button" onclick="exportExcel()">
+              <i class="bi bi-file-earmark-excel me-1"></i> ส่งออก Excel
+            </button>
+          </div>
+
+          <!-- Summary Table -->
+          <div class="table-responsive">
+            <table class="table align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>วันที่</th>
+                  <th>ประเภท</th>
+                  <th>หมวดหมู่</th>
+                  <th class="text-end">จำนวนเงิน</th>
+                  <th>รายละเอียด</th>
+                  <th>หมายเหตุ</th>
+                </tr>
+              </thead>
+              <tbody id="reportTableBody">
+                <tr class="empty-state">
+                  <td colspan="6">
+                    <i class="bi bi-inbox"></i>
+                    <h5>ยังไม่มีข้อมูลรายงาน</h5>
+                    <p>ยังไม่มีข้อมูลธุรกรรมในช่วงเวลานี้</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
